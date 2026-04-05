@@ -1,8 +1,8 @@
-"""Grid environment and Cell types for the ABM framework."""
+"""Grid: pure spatial structure. No domain-specific rules."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 import numpy as np
@@ -42,32 +42,18 @@ def _chebyshev(
     return float(max(dr, dc))
 
 
-# Type aliases for rule callables
-type ContactRule = Callable[..., Sequence[tuple[object, float]]]
-type MoveRule = Callable[..., None]
-
-
 class Grid[C](Environment):
-    """2D grid environment with composable contact and move rules.
+    """Pure 2D grid. Provides spatial structure only.
 
-    contact_rule: (env, loc) -> [(agent, intensity)]
-    move_rule: (env, loc, agent, rng) -> None
+    No contact or move rules — those are composed externally.
     """
 
     def __init__(
-        self,
-        size: int,
-        cell_factory: Callable[..., C],
-        *,
-        periodic: bool = False,
-        contact_rule: ContactRule,
-        move_rule: MoveRule,
+        self, size: int, cell_factory: Callable[..., C], *, periodic: bool = False,
     ) -> None:
         self.size = size
         self.periodic = periodic
         self._cell_factory = cell_factory
-        self._contact_rule = contact_rule
-        self._move_rule = move_rule
         self._cells: list[list[C | None]] = [
             [None] * size for _ in range(size)
         ]
@@ -94,16 +80,8 @@ class Grid[C](Environment):
     def items(self) -> Iterator[tuple[C, object]]:
         return ((c, c.value) for c in self._agents)
 
-    def contacts(self, location: C) -> Sequence[tuple[object, float]]:
-        """Get contacts for an agent using the composed contact_rule."""
-        return self._contact_rule(self, location)
-
-    def try_move(self, location: C, agent: object, rng: np.random.Generator) -> None:
-        """Attempt to move an agent using the composed move_rule."""
-        self._move_rule(self, location, agent, rng)
-
     def move(self, from_loc: C, to_pos: tuple[int, int]) -> None:
-        """Execute a move (used by move_rules)."""
+        """Move an agent from one cell to an empty position."""
         agent = from_loc.value
         self._cells[from_loc.pos[0]][from_loc.pos[1]] = None
         self._agents.remove(from_loc)

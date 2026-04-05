@@ -1,4 +1,4 @@
-"""TDD: contact_rule + move_rule composed into env, called via Rule→Agent→Env."""
+"""TDD: Grid is pure spatial. SIREnv composes Grid + rules."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import pytest
 from abm_framework.core import Agent, Environment, Model
 from abm_framework.grid import Grid, Cell, OptionalCell
 from examples.sir import SIRRule, SIRAgent, count_by_state
+from examples.sir_env import SIREnv
+from examples.grid_rules import moore_contacts, no_move, adjacent_move
 
 
 # ---------------------------------------------------------------------------
@@ -19,15 +21,17 @@ from examples.sir import SIRRule, SIRAgent, count_by_state
 def test_dense_grid():
     rng = np.random.default_rng(42)
 
+    # Grid: pure spatial (no rules)
+    grid = Grid(20, Cell, periodic=True)
+
+    # SIREnv: composes Grid + contact/move rules
+    env = SIREnv(grid, contact_rule=moore_contacts, move_rule=no_move)
+
     rule = SIRRule()
     agents = (
         [SIRAgent("I", beta=0.3, gamma=0.1) for _ in range(3)]
         + [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(397)]
     )
-    from examples.grid_rules import moore_contacts, no_move
-    env = Grid(20, Cell, periodic=True,
-               contact_rule=moore_contacts, move_rule=no_move)
-
     model = Model(rule, env, agents, rng=rng)
     observations = model.run(50, observe=count_by_state)
 
@@ -42,16 +46,15 @@ def test_dense_grid():
 
 def test_population_conservation():
     rng = np.random.default_rng(0)
-    from examples.grid_rules import moore_contacts, no_move
+
+    grid = Grid(10, Cell, periodic=True)
+    env = SIREnv(grid, contact_rule=moore_contacts, move_rule=no_move)
 
     rule = SIRRule()
     agents = (
         [SIRAgent("I", beta=0.3, gamma=0.1) for _ in range(3)]
         + [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(97)]
     )
-    env = Grid(10, Cell, periodic=True,
-               contact_rule=moore_contacts, move_rule=no_move)
-
     model = Model(rule, env, agents, rng=rng)
     observations = model.run(30, observe=count_by_state)
 
@@ -65,16 +68,16 @@ def test_population_conservation():
 
 def test_sparse_grid_with_movement():
     rng = np.random.default_rng(42)
-    from examples.grid_rules import moore_contacts, adjacent_move
+
+    # Same Grid class, OptionalCell, different move rule
+    grid = Grid(20, OptionalCell, periodic=True)
+    env = SIREnv(grid, contact_rule=moore_contacts, move_rule=adjacent_move)
 
     rule = SIRRule()
     agents = (
         [SIRAgent("I", beta=0.3, gamma=0.1) for _ in range(3)]
         + [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(267)]
     )
-    env = Grid(20, OptionalCell, periodic=True,
-               contact_rule=moore_contacts, move_rule=adjacent_move)
-
     model = Model(rule, env, agents, rng=rng)
     observations = model.run(50, observe=count_by_state)
 
@@ -83,45 +86,34 @@ def test_sparse_grid_with_movement():
 
 
 # ---------------------------------------------------------------------------
-# Use case 4: contacts returns (agent, intensity) pairs
+# Use case 4: Contacts return intensity
 # ---------------------------------------------------------------------------
 
 def test_contacts_returns_intensity():
     rng = np.random.default_rng(42)
-    from examples.grid_rules import moore_contacts, no_move
+
+    grid = Grid(5, Cell, periodic=True)
+    env = SIREnv(grid, contact_rule=moore_contacts, move_rule=no_move)
 
     rule = SIRRule()
     agents = [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(25)]
-    env = Grid(5, Cell, periodic=True,
-               contact_rule=moore_contacts, move_rule=no_move)
     model = Model(rule, env, agents, rng=rng)
 
     loc, _ = next(model.env.items())
     contacts = model.env.contacts(loc)
-    assert len(contacts) == 8  # Moore neighborhood
+    assert len(contacts) == 8
     assert all(isinstance(intensity, float) for _, intensity in contacts)
 
 
 # ---------------------------------------------------------------------------
-# Use case 5: Dense grid has no movement (reachable empty)
+# Use case 5: Grid is independent (no rules attached)
 # ---------------------------------------------------------------------------
 
-def test_dense_no_reachable():
-    rng = np.random.default_rng(42)
-    from examples.grid_rules import moore_contacts, adjacent_move
-
-    rule = SIRRule()
-    agents = [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(25)]
-    # Even with adjacent_move, dense grid can't move
-    env = Grid(5, Cell, periodic=True,
-               contact_rule=moore_contacts, move_rule=adjacent_move)
-    model = Model(rule, env, agents, rng=rng)
-
-    # After step, nothing moves (no empty cells)
-    before = [a.state for a in model.env]
-    model.step()
-    # Population conserved
-    assert sum(1 for a in model.env) == 25
+def test_grid_is_independent():
+    grid = Grid(10, Cell, periodic=True)
+    assert grid.size == 10
+    assert not hasattr(grid, "_contact_rule")
+    assert not hasattr(grid, "_move_rule")
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +122,9 @@ def test_dense_no_reachable():
 
 def test_heterogeneous_agents():
     rng = np.random.default_rng(42)
-    from examples.grid_rules import moore_contacts, no_move
+
+    grid = Grid(10, Cell, periodic=True)
+    env = SIREnv(grid, contact_rule=moore_contacts, move_rule=no_move)
 
     rule = SIRRule()
     agents = (
@@ -138,8 +132,6 @@ def test_heterogeneous_agents():
         + [SIRAgent("S", beta=0.1, gamma=0.05) for _ in range(50)]
         + [SIRAgent("S", beta=0.5, gamma=0.2) for _ in range(47)]
     )
-    env = Grid(10, Cell, periodic=True,
-               contact_rule=moore_contacts, move_rule=no_move)
     model = Model(rule, env, agents, rng=rng)
     observations = model.run(30, observe=count_by_state)
 
@@ -153,15 +145,15 @@ def test_heterogeneous_agents():
 
 def test_reject_incompatible_agent():
     rng = np.random.default_rng(42)
-    from examples.grid_rules import moore_contacts, no_move
 
     @dataclass
     class BadAgent(Agent):
         name: str
 
+    grid = Grid(5, Cell, periodic=False)
+    env = SIREnv(grid, contact_rule=moore_contacts, move_rule=no_move)
+
     rule = SIRRule()
-    env = Grid(5, Cell, periodic=False,
-               contact_rule=moore_contacts, move_rule=no_move)
 
     with pytest.raises(TypeError):
         Model(rule, env, [BadAgent("x") for _ in range(25)], rng=rng)
