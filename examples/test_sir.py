@@ -9,7 +9,7 @@ import pytest
 
 from abm_framework.core import Agent, Environment, Model
 from examples.sir import SIRRule, SIRAgent, count_by_state
-from examples.grid import Grid
+from examples.grid import Grid, Cell
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ def test_basic_assembly_and_run():
         [SIRAgent("I", beta=0.3, gamma=0.1) for _ in range(3)]
         + [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(397)]
     )
-    env = Grid(size=20, periodic=True)
+    env = Grid(20, Cell, periodic=True)
 
     model = Model(rule, env, agents, rng=rng)
     observations = model.run(50, observe=count_by_state)
@@ -51,7 +51,7 @@ def test_population_conservation():
         [SIRAgent("I", beta=0.3, gamma=0.1) for _ in range(3)]
         + [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(97)]
     )
-    env = Grid(size=10, periodic=True)
+    env = Grid(10, Cell, periodic=True)
 
     model = Model(rule, env, agents, rng=rng)
     observations = model.run(30, observe=count_by_state)
@@ -74,7 +74,7 @@ def test_reject_incompatible_agent():
     rule = SIRRule(perception_radius=1.5, move_radius=1.5,
                    distance_to_weight=lambda d: 1.0)
     agents = [BadAgent("x") for _ in range(25)]
-    env = Grid(size=5, periodic=False)
+    env = Grid(5, Cell, periodic=False)
 
     with pytest.raises(TypeError):
         Model(rule, env, agents, rng=rng)
@@ -111,7 +111,7 @@ def test_step_and_observe():
         [SIRAgent("I", beta=0.3, gamma=0.1) for _ in range(3)]
         + [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(97)]
     )
-    env = Grid(size=10, periodic=True)
+    env = Grid(10, Cell, periodic=True)
     model = Model(rule, env, agents, rng=rng)
 
     before = count_by_state(model.env)
@@ -136,7 +136,7 @@ def test_heterogeneous_agents():
         + [SIRAgent("S", beta=0.1, gamma=0.05) for _ in range(50)]   # cautious
         + [SIRAgent("S", beta=0.5, gamma=0.2) for _ in range(47)]    # active
     )
-    env = Grid(size=10, periodic=True)
+    env = Grid(10, Cell, periodic=True)
     model = Model(rule, env, agents, rng=rng)
 
     observations = model.run(30, observe=count_by_state)
@@ -156,7 +156,7 @@ def test_agents_with_distances():
     rule = SIRRule(perception_radius=1.5, move_radius=1.5,
                    distance_to_weight=lambda d: 1.0)
     agents = [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(25)]
-    env = Grid(size=5, periodic=True)
+    env = Grid(5, Cell, periodic=True)
     model = Model(rule, env, agents, rng=rng)
 
     loc, _ = next(model.env.items())
@@ -175,7 +175,7 @@ def test_dense_grid_no_movement():
     rule = SIRRule(perception_radius=1.5, move_radius=1.5,
                    distance_to_weight=lambda d: 1.0)
     agents = [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(25)]
-    env = Grid(size=5, periodic=True)
+    env = Grid(5, Cell, periodic=True)
     model = Model(rule, env, agents, rng=rng)
 
     loc, _ = next(model.env.items())

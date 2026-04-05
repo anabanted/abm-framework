@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -33,12 +33,15 @@ def _chebyshev(
 class Grid[C](Environment):
     """2D grid environment with Chebyshev distance.
 
-    C is the cell type: Cell[A] for dense grids, OptionalCell[A] for sparse.
+    C is the cell type, injected via cell_factory.
     """
 
-    def __init__(self, size: int, *, periodic: bool = False) -> None:
+    def __init__(
+        self, size: int, cell_factory: Callable[..., C], *, periodic: bool = False,
+    ) -> None:
         self.size = size
         self.periodic = periodic
+        self._cell_factory = cell_factory
         self._cells: list[list[C | None]] = [
             [None] * size for _ in range(size)
         ]
@@ -55,7 +58,7 @@ class Grid[C](Environment):
         if not empties:
             raise ValueError("No empty cells available")
         pos = empties[rng.integers(len(empties))]
-        cell = Cell(pos, agent)
+        cell = self._cell_factory(pos, agent)
         self._cells[pos[0]][pos[1]] = cell
         self._agents.append(cell)
 
@@ -95,6 +98,6 @@ class Grid[C](Environment):
         agent = from_loc.value
         self._cells[from_loc.pos[0]][from_loc.pos[1]] = None
         self._agents.remove(from_loc)
-        new_cell = Cell(to_pos, agent)
+        new_cell = self._cell_factory(to_pos, agent)
         self._cells[to_pos[0]][to_pos[1]] = new_cell
         self._agents.append(new_cell)
