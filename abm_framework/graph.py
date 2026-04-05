@@ -80,7 +80,7 @@ class Graph(Environment):
             # Apply with temperature
             mag = np.sqrt((disp ** 2).sum(axis=1))
             mag = np.maximum(mag, 1e-6)
-            pos += disp / mag[:, np.newaxis] * min(temp, mag)[:, np.newaxis]
+            pos += disp / mag[:, np.newaxis] * np.minimum(temp, mag)[:, np.newaxis]
 
         # Normalize to [-1, 1]
         pos -= pos.mean(axis=0)
