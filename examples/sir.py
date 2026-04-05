@@ -45,14 +45,13 @@ def sir_agent(beta: float, gamma: float) -> type[Agent]:
 
         def choose_move(
             self,
+            current_loc: Any,
             destinations: Sequence[tuple[Any, float]],
             rng: np.random.Generator,
-        ) -> object | None:
-            """Choose a destination to move to, or None to stay."""
+        ) -> object:
+            """Choose where to move. Always returns a location (may be current)."""
             if not destinations:
-                return None
-            # Simple: closer destinations are more likely
-            # For now, pick uniformly at random
+                return current_loc  # no alternatives → stay in place
             loc, _dist = destinations[rng.integers(len(destinations))]
             return loc
 
@@ -107,9 +106,10 @@ class SIRRule(Rule):
 
         def choose_move(
             self,
+            current_loc: Any,
             destinations: Sequence[tuple[Any, float]],
             rng: np.random.Generator,
-        ) -> object | None: ...
+        ) -> object: ...
 
     @staticmethod
     def init(env: Environment, agent_cls: type[Agent], rng) -> None:
@@ -136,8 +136,8 @@ class SIRRule(Rule):
         # Phase 2: movement (sequential — order matters for occupancy)
         for loc, agent in list(env.items()):
             destinations = env.reachable(loc, SIRRule.MOVE_RADIUS)
-            dest = agent.choose_move(destinations, rng)
-            if dest is not None:
+            dest = agent.choose_move(loc, destinations, rng)
+            if dest is not loc:
                 env.move(loc, dest)
 
 

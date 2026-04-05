@@ -158,14 +158,16 @@ def test_dense_grid_no_movement():
 # Use case 9: choose_move returns None on dense grid
 # ---------------------------------------------------------------------------
 
-def test_agent_choose_move_none_on_dense():
+def test_agent_choose_move_stays_on_dense():
     SIRAgent = sir_agent(beta=0.3, gamma=0.1)
     rng = np.random.default_rng(42)
     agent = SIRAgent("S")
 
-    # No destinations available
-    result = agent.choose_move([], rng)
-    assert result is None
+    sentinel = object()  # current location
+
+    # No destinations → returns current location (stays in place)
+    result = agent.choose_move(sentinel, [], rng)
+    assert result is sentinel
 
 
 if __name__ == "__main__":
