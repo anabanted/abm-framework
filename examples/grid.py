@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 
 import numpy as np
 
 from abm_framework.core import Agent, Environment
 
 
+@dataclass
 class Cell[T]:
     """A grid cell with position and value."""
 
-    __slots__ = ("pos", "value")
-
-    def __init__(self, pos: tuple[int, int], value: T) -> None:
-        self.pos = pos
-        self.value: T = value
-
-    def __repr__(self) -> str:
-        return f"Cell({self.pos}, {self.value!r})"
+    pos: tuple[int, int]
+    value: T
 
 
 def _chebyshev(
@@ -33,18 +29,18 @@ def _chebyshev(
     return float(max(dr, dc))
 
 
-class Grid(Environment):
+class Grid[A: Agent](Environment):
     """2D grid environment with Chebyshev distance."""
 
     def __init__(self, size: int, *, periodic: bool = False) -> None:
         self.size = size
         self.periodic = periodic
-        self._cells: list[list[Cell | None]] = [
+        self._cells: list[list[Cell[A] | None]] = [
             [None] * size for _ in range(size)
         ]
-        self._agents: list[Cell] = []
+        self._agents: list[Cell[A]] = []
 
-    def place_random(self, agent: Agent, rng: np.random.Generator) -> None:
+    def place_random(self, agent: A, rng: np.random.Generator) -> None:
         """Place an agent at a random empty position."""
         empties = [
             (r, c)
@@ -59,15 +55,15 @@ class Grid(Environment):
         self._cells[pos[0]][pos[1]] = cell
         self._agents.append(cell)
 
-    def __iter__(self) -> Iterator:
+    def __iter__(self) -> Iterator[A]:
         return (c.value for c in self._agents)
 
-    def items(self) -> Iterator[tuple[Cell, Agent]]:
+    def items(self) -> Iterator[tuple[Cell[A], A]]:
         return ((c, c.value) for c in self._agents)
 
     def agents_with_distances(
-        self, location: Cell, max_distance: float,
-    ) -> list[tuple[Agent, float]]:
+        self, location: Cell[A], max_distance: float,
+    ) -> list[tuple[A, float]]:
         """All agents within max_distance (excluding self)."""
         return [
             (c.value, d)
@@ -78,20 +74,19 @@ class Grid(Environment):
         ]
 
     def reachable(
-        self, location: Cell, max_distance: float,
+        self, location: Cell[A], max_distance: float,
     ) -> list[tuple[tuple[int, int], float]]:
         """Empty cells within max_distance, with distances."""
         return [
-            (pos, d)
+            ((r, c), d)
             for r in range(self.size)
             for c in range(self.size)
-            for pos in [(r, c)]
             if self._cells[r][c] is None
-            for d in [_chebyshev(location.pos, pos, self.size, self.periodic)]
+            for d in [_chebyshev(location.pos, (r, c), self.size, self.periodic)]
             if d <= max_distance
         ]
 
-    def move(self, from_loc: Cell, to_pos: tuple[int, int]) -> None:
+    def move(self, from_loc: Cell[A], to_pos: tuple[int, int]) -> None:
         """Move agent from cell to empty position."""
         agent = from_loc.value
         self._cells[from_loc.pos[0]][from_loc.pos[1]] = None
