@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal, NamedTuple, Protocol, Sequence, runtime_checkable
 
@@ -30,18 +30,31 @@ def sir_agent(beta: float, gamma: float) -> type[Agent]:
 
         def next_state(
             self,
-            nearby: Sequence[tuple[SIRAgent, float]],
+            others: Sequence[tuple[SIRAgent, float]],
             rng: np.random.Generator,
         ) -> SIRState:
-            """Compute next state from current state and nearby agents."""
+            """Compute next state given other agents with distances."""
             if self.state == "S":
-                for agent, _distance in nearby:
+                for agent, _distance in others:
                     if agent.state == "I" and rng.random() < beta:
                         return "I"
                 return "S"
             if self.state == "I":
                 return "R" if rng.random() < gamma else "I"
             return self.state
+
+        def choose_move(
+            self,
+            destinations: Sequence[tuple[Any, float]],
+            rng: np.random.Generator,
+        ) -> object | None:
+            """Choose a destination to move to, or None to stay."""
+            if not destinations:
+                return None
+            # Simple: closer destinations are more likely
+            # For now, pick uniformly at random
+            loc, _dist = destinations[rng.integers(len(destinations))]
+            return loc
 
     return SIRAgent
 
@@ -54,22 +67,30 @@ def sir_agent(beta: float, gamma: float) -> type[Agent]:
 class SIRRule(Rule):
     """SIR transition rule.
 
-    Defines:
-    - EnvSpec: environment must have items(), nearby(), place_random()
-    - AgentSpec: agents must have state and next_state(nearby, rng)
-    - init(): populate grid with initial infected + susceptible
-    - step(): synchronous comonadic update
+    Requires from Environment:
+    - items(), agents_with_distances(loc, max_dist), reachable(loc, max_dist),
+      move(from, to), place_random(agent, rng)
+
+    Requires from Agent:
+    - state, next_state(others, rng), choose_move(destinations, rng)
     """
 
     INITIAL_INFECTED: int = 3
     PERCEPTION_RADIUS: float = 1.5
+    MOVE_RADIUS: float = 1.5
 
     @runtime_checkable
     class EnvSpec(Protocol):
         """Environment capabilities required by this rule."""
 
         def items(self) -> Iterator[tuple[Any, Any]]: ...
-        def nearby(self, location: Any, radius: float) -> Sequence[tuple[Any, float]]: ...
+        def agents_with_distances(
+            self, location: Any, max_distance: float,
+        ) -> Sequence[tuple[Any, float]]: ...
+        def reachable(
+            self, location: Any, max_distance: float,
+        ) -> Sequence[tuple[Any, float]]: ...
+        def move(self, from_loc: Any, to_loc: Any) -> None: ...
         def place_random(self, agent: Any, rng: Any) -> None: ...
 
     @runtime_checkable
@@ -80,9 +101,15 @@ class SIRRule(Rule):
 
         def next_state(
             self,
-            nearby: Sequence[tuple[Any, float]],
+            others: Sequence[tuple[Any, float]],
             rng: np.random.Generator,
         ) -> SIRState: ...
+
+        def choose_move(
+            self,
+            destinations: Sequence[tuple[Any, float]],
+            rng: np.random.Generator,
+        ) -> object | None: ...
 
     @staticmethod
     def init(env: Environment, agent_cls: type[Agent], rng) -> None:
@@ -95,15 +122,23 @@ class SIRRule(Rule):
 
     @staticmethod
     def step(env: Environment, rng) -> None:
-        """Synchronous update: compute all next states, then apply."""
+        """Synchronous state update + sequential movement."""
+        # Phase 1: compute all next states (synchronous)
         updates = [
             (agent, agent.next_state(
-                env.nearby(loc, SIRRule.PERCEPTION_RADIUS), rng,
+                env.agents_with_distances(loc, SIRRule.PERCEPTION_RADIUS), rng,
             ))
             for loc, agent in env.items()
         ]
         for agent, new_state in updates:
             agent.state = new_state
+
+        # Phase 2: movement (sequential — order matters for occupancy)
+        for loc, agent in list(env.items()):
+            destinations = env.reachable(loc, SIRRule.MOVE_RADIUS)
+            dest = agent.choose_move(destinations, rng)
+            if dest is not None:
+                env.move(loc, dest)
 
 
 # ---------------------------------------------------------------------------

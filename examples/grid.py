@@ -57,12 +57,6 @@ def grid(size: int, *, periodic: bool = False) -> type[Environment]:
             ]
             self._agents: list[Cell] = []
 
-        def place(self, agent: Agent, pos: tuple[int, int]) -> None:
-            """Place an agent at a specific grid position."""
-            cell = Cell(pos, agent)
-            self._cells[pos[0]][pos[1]] = cell
-            self._agents.append(cell)
-
         def place_random(self, agent: Agent, rng: np.random.Generator) -> None:
             """Place an agent at a random empty position."""
             empties = [
@@ -74,7 +68,9 @@ def grid(size: int, *, periodic: bool = False) -> type[Environment]:
             if not empties:
                 raise ValueError("No empty cells available")
             pos = empties[rng.integers(len(empties))]
-            self.place(agent, pos)
+            cell = Cell(pos, agent)
+            self._cells[pos[0]][pos[1]] = cell
+            self._agents.append(cell)
 
         def __iter__(self) -> Iterator:
             """Iterate over all agents."""
@@ -84,10 +80,10 @@ def grid(size: int, *, periodic: bool = False) -> type[Environment]:
             """Iterate over (cell, agent) pairs."""
             return ((cell, cell.value) for cell in self._agents)
 
-        def nearby(
-            self, location: Cell, radius: float,
+        def agents_with_distances(
+            self, location: Cell, max_distance: float,
         ) -> list[tuple[Agent, float]]:
-            """Agents within Chebyshev distance <= radius (excluding self)."""
+            """All agents within max_distance (excluding self)."""
             return [
                 (cell.value, dist)
                 for cell in self._agents
@@ -95,7 +91,34 @@ def grid(size: int, *, periodic: bool = False) -> type[Environment]:
                 for dist in [_chebyshev(
                     location.pos, cell.pos, self.size, self.periodic,
                 )]
-                if dist <= radius
+                if dist <= max_distance
             ]
+
+        def reachable(
+            self, location: Cell, max_distance: float,
+        ) -> list[tuple[tuple[int, int], float]]:
+            """Empty cells within max_distance, with distances."""
+            return [
+                (pos, dist)
+                for r in range(self.size)
+                for c in range(self.size)
+                for pos in [(r, c)]
+                if self._cells[r][c] is None
+                for dist in [_chebyshev(
+                    location.pos, pos, self.size, self.periodic,
+                )]
+                if dist <= max_distance
+            ]
+
+        def move(self, from_loc: Cell, to_pos: tuple[int, int]) -> None:
+            """Move agent from one cell to another position."""
+            agent = from_loc.value
+            # Clear old position
+            self._cells[from_loc.pos[0]][from_loc.pos[1]] = None
+            self._agents.remove(from_loc)
+            # Place at new position
+            new_cell = Cell(to_pos, agent)
+            self._cells[to_pos[0]][to_pos[1]] = new_cell
+            self._agents.append(new_cell)
 
     return Grid
