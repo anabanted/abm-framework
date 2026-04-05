@@ -1,4 +1,4 @@
-"""Grid animation helpers for the ABM framework."""
+"""Animation helpers for all environment types."""
 
 from __future__ import annotations
 
@@ -12,6 +12,11 @@ from matplotlib.animation import FuncAnimation
 from numpy.typing import NDArray
 
 from .core import Environment, Model
+
+
+# ---------------------------------------------------------------------------
+# Shared utilities
+# ---------------------------------------------------------------------------
 
 
 def grid_to_color_array(
@@ -33,26 +38,40 @@ def record_simulation[O](
     model: Model,
     n_steps: int,
     observe: Callable[[Environment], O],
-    snapshot: Callable[[Environment], NDArray],
+    snapshot: Callable[[Environment], object],
     *,
     progress: bool = True,
-) -> tuple[list[NDArray], list[O]]:
-    """Run simulation and record grid snapshots + observations at each step."""
-    import sys
+) -> tuple[list, list[O]]:
+    """Run simulation and record snapshots + observations at each step."""
+    try:
+        from tqdm.auto import trange
+        step_iter = trange(n_steps, desc="Simulating", disable=not progress)
+    except ImportError:
+        step_iter = range(n_steps)
     snapshots = [snapshot(model.env)]
     observations = [observe(model.env)]
-    for i in range(n_steps):
+    for _ in step_iter:
         model.step()
         snapshots.append(snapshot(model.env))
         observations.append(observe(model.env))
-        if progress and (i + 1) % 10 == 0:
-            print(f"\r\u23f3 Step {i + 1}/{n_steps}", end="", flush=True)
-    if progress:
-        print(f"\r\u23f3 Simulation done ({n_steps} steps). Rendering...", flush=True)
     return snapshots, observations
 
 
-def animate_grid[O](
+def _make_anim(fig, update, n_steps, interval=80):
+    """Create FuncAnimation with standard frame skipping."""
+    frame_indices = list(range(0, n_steps + 1, 2))
+    anim = FuncAnimation(fig, lambda fi: update(frame_indices[fi]),
+                         frames=len(frame_indices), interval=interval, blit=False)
+    plt.close(fig)
+    return anim
+
+
+# ---------------------------------------------------------------------------
+# animate_dense_grid — Grid[Cell[A]], all cells filled
+# ---------------------------------------------------------------------------
+
+
+def animate_dense_grid[O](
     grid_snapshots: list[NDArray],
     color_map: NDArray,
     observations: list[O],
@@ -62,43 +81,115 @@ def animate_grid[O](
     setup_right: Callable[[Axes, list[O], int], None],
     update_right: Callable[[Axes, list[O], int], str],
 ) -> FuncAnimation:
-    """Create a grid animation with injectable right panel.
-
-    Parameters
-    ----------
-    grid_snapshots : list of 2D int arrays (indexed into color_map)
-    color_map : (N, 3) array mapping indices to RGB
-    observations : list of observation objects (one per step)
-    n_steps : number of simulation steps
-    title : figure title
-    legend_entries : [(color, label), ...] for grid legend
-    setup_right : (ax, observations, n_steps) -> None
-        Called once to initialize the right panel
-    update_right : (ax, observations, t) -> str
-        Called each frame. Returns subtitle text for the grid panel.
-    """
+    """Animate a dense grid (no empty cells)."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     fig.suptitle(title, fontsize=12, fontweight="bold")
 
     im = ax1.imshow(color_map[grid_snapshots[0]], interpolation="nearest")
     ax1.set_xticks([]); ax1.set_yticks([])
     title1 = ax1.set_title("Step 0")
-    ax1.legend(
-        handles=[Patch(facecolor=c, label=l) for c, l in legend_entries],
-        loc="upper right", fontsize=9,
-    )
-
+    ax1.legend(handles=[Patch(facecolor=c, label=l) for c, l in legend_entries],
+               loc="upper right", fontsize=9)
     setup_right(ax2, observations, n_steps)
 
-    frame_indices = list(range(0, n_steps + 1, 2))
-
-    def update(frame_idx: int):
-        t = frame_indices[frame_idx]
+    def update(t):
         im.set_data(color_map[grid_snapshots[t]])
-        subtitle = update_right(ax2, observations, t)
-        title1.set_text(f"Step {t} \u2014 {subtitle}")
+        title1.set_text(f"Step {t} \u2014 {update_right(ax2, observations, t)}")
 
-    anim = FuncAnimation(fig, update, frames=len(frame_indices),
-                         interval=80, blit=False)
-    plt.close(fig)
-    return anim
+    return _make_anim(fig, update, n_steps)
+
+
+# ---------------------------------------------------------------------------
+# animate_sparse_grid — Grid[OptionalCell[A]], some cells empty
+# ---------------------------------------------------------------------------
+
+
+def animate_sparse_grid[O](
+    grid_snapshots: list[NDArray],
+    color_map: NDArray,
+    observations: list[O],
+    n_steps: int,
+    title: str,
+    legend_entries: Sequence[tuple[str, str]],
+    setup_right: Callable[[Axes, list[O], int], None],
+    update_right: Callable[[Axes, list[O], int], str],
+) -> FuncAnimation:
+    """Animate a sparse grid (empty cells shown as distinct color)."""
+    # Same rendering as dense — color_map[0] handles empty cells
+    return animate_dense_grid(
+        grid_snapshots, color_map, observations, n_steps,
+        title, legend_entries, setup_right, update_right,
+    )
+
+
+# ---------------------------------------------------------------------------
+# animate_graph — Graph with edges and node positions
+# ---------------------------------------------------------------------------
+
+
+def animate_graph[O](
+    snapshots: list[list[tuple[tuple[float, float], str]]],
+    observations: list[O],
+    n_steps: int,
+    title: str,
+    state_colors: dict[str, str],
+    edges: list[tuple[int, int]],
+    node_pos: dict[int, tuple[float, float]],
+    setup_right: Callable[[Axes, list[O], int], None],
+    update_right: Callable[[Axes, list[O], int], str],
+) -> FuncAnimation:
+    """Animate agents on a graph with edges drawn."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle(title, fontsize=12, fontweight="bold")
+    setup_right(ax2, observations, n_steps)
+
+    def update(t):
+        ax1.cla()
+        for i, j in edges:
+            ax1.plot([node_pos[i][0], node_pos[j][0]],
+                     [node_pos[i][1], node_pos[j][1]],
+                     color="lightgrey", lw=0.5, zorder=1)
+        for (x, y), state in snapshots[t]:
+            ax1.scatter(x, y, c=state_colors[state], s=20, alpha=0.8, zorder=2)
+        ax1.set_aspect("equal")
+        ax1.set_xticks([]); ax1.set_yticks([])
+        ax1.set_title(f"Step {t} \u2014 {update_right(ax2, observations, t)}")
+
+    return _make_anim(fig, update, n_steps, interval=100)
+
+
+# ---------------------------------------------------------------------------
+# animate_freespace — continuous 2D with moving particles
+# ---------------------------------------------------------------------------
+
+
+def animate_freespace[O](
+    snapshots: list[list[tuple[tuple[float, float], str]]],
+    observations: list[O],
+    n_steps: int,
+    title: str,
+    state_colors: dict[str, str],
+    xlim: tuple[float, float],
+    ylim: tuple[float, float],
+    setup_right: Callable[[Axes, list[O], int], None],
+    update_right: Callable[[Axes, list[O], int], str],
+) -> FuncAnimation:
+    """Animate agents in continuous 2D space."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle(title, fontsize=12, fontweight="bold")
+    setup_right(ax2, observations, n_steps)
+
+    def update(t):
+        ax1.cla()
+        for (x, y), state in snapshots[t]:
+            ax1.scatter(x, y, c=state_colors[state], s=12, alpha=0.7)
+        ax1.set_xlim(*xlim); ax1.set_ylim(*ylim)
+        ax1.set_aspect("equal")
+        ax1.set_xticks([]); ax1.set_yticks([])
+        ax1.set_title(f"Step {t} \u2014 {update_right(ax2, observations, t)}")
+
+    return _make_anim(fig, update, n_steps, interval=100)
+
+
+# Backward compatibility
+animate_grid = animate_dense_grid
