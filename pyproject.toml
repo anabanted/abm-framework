@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Rule-centric Agent-Based Model framework"
 requires-python = ">=3.12"
 dependencies = [
+    "matplotlib>=3.10.8",
     "numpy",
 ]
 
