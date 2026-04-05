@@ -29,18 +29,21 @@ def _chebyshev(
     return float(max(dr, dc))
 
 
-class Grid[A: Agent](Environment):
-    """2D grid environment with Chebyshev distance."""
+class Grid[C](Environment):
+    """2D grid environment with Chebyshev distance.
+
+    C is the cell type: Cell[A] for dense grids, OptionalCell[A] for sparse.
+    """
 
     def __init__(self, size: int, *, periodic: bool = False) -> None:
         self.size = size
         self.periodic = periodic
-        self._cells: list[list[Cell[A] | None]] = [
+        self._cells: list[list[C | None]] = [
             [None] * size for _ in range(size)
         ]
-        self._agents: list[Cell[A]] = []
+        self._agents: list[C] = []
 
-    def place_random(self, agent: A, rng: np.random.Generator) -> None:
+    def place_random(self, agent, rng: np.random.Generator) -> None:
         """Place an agent at a random empty position."""
         empties = [
             (r, c)
@@ -55,15 +58,15 @@ class Grid[A: Agent](Environment):
         self._cells[pos[0]][pos[1]] = cell
         self._agents.append(cell)
 
-    def __iter__(self) -> Iterator[A]:
+    def __iter__(self) -> Iterator:
         return (c.value for c in self._agents)
 
-    def items(self) -> Iterator[tuple[Cell[A], A]]:
+    def items(self) -> Iterator[tuple[C, object]]:
         return ((c, c.value) for c in self._agents)
 
     def agents_with_distances(
-        self, location: Cell[A], max_distance: float,
-    ) -> list[tuple[A, float]]:
+        self, location: C, max_distance: float,
+    ) -> list[tuple[object, float]]:
         """All agents within max_distance (excluding self)."""
         return [
             (c.value, d)
@@ -74,7 +77,7 @@ class Grid[A: Agent](Environment):
         ]
 
     def reachable(
-        self, location: Cell[A], max_distance: float,
+        self, location: C, max_distance: float,
     ) -> list[tuple[tuple[int, int], float]]:
         """Empty cells within max_distance, with distances."""
         return [
@@ -86,7 +89,7 @@ class Grid[A: Agent](Environment):
             if d <= max_distance
         ]
 
-    def move(self, from_loc: Cell[A], to_pos: tuple[int, int]) -> None:
+    def move(self, from_loc: C, to_pos: tuple[int, int]) -> None:
         """Move agent from cell to empty position."""
         agent = from_loc.value
         self._cells[from_loc.pos[0]][from_loc.pos[1]] = None
