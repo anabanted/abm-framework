@@ -12,10 +12,25 @@ from .core import Agent, Environment
 
 @dataclass
 class Cell[T]:
-    """A grid cell with position and value."""
+    """A grid cell that always holds a value."""
 
     pos: tuple[int, int]
     value: T
+
+
+@dataclass
+class OptionalCell[T]:
+    """A grid cell that may be empty (value is None).
+
+    Used in sparse grids where not all positions are occupied.
+    """
+
+    pos: tuple[int, int]
+    value: T | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return self.value is None
 
 
 def _chebyshev(
