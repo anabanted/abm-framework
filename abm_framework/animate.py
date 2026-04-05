@@ -97,7 +97,7 @@ def animate_grid(
     def update(frame_idx: int):
         t = frame_indices[frame_idx]
         im.set_data(color_map[grid_snapshots[t]])
-        parts = "  ".join(f"{l}={int(v[t])}" for l, (_, v) in curves.items())
+        parts = "  ".join(f"{l}={int(v[t])}" for l, (_, v) in lines.items())
         title1.set_text(f"Step {t} \u2014 {parts}")
         for line, values in lines.values():
             line.set_data(t_all[:t+1], values[:t+1])
