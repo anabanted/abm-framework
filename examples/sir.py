@@ -1,11 +1,17 @@
-"""SIR domain: Agent factory, Rule, observation."""
+"""SIR domain: Agent factory, Rule factory, observation.
+
+All three components are closure factories returning classes:
+- sir_agent(beta, gamma) → Agent class
+- sir_rule(initial_infected, perception_radius, ...) → Rule class
+- grid(size, periodic) → Environment class (in grid.py)
+"""
 
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, NamedTuple, Protocol, Sequence, runtime_checkable
+from typing import Any, Literal, NamedTuple, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -24,8 +30,6 @@ def sir_agent(beta: float, gamma: float) -> type[Agent]:
 
     @dataclass
     class SIRAgent(Agent):
-        """SIR agent. beta/gamma captured from closure."""
-
         state: SIRState
 
         def next_state(
@@ -45,100 +49,100 @@ def sir_agent(beta: float, gamma: float) -> type[Agent]:
 
         def choose_move(
             self,
-            current_loc: Any,
-            destinations: Sequence[tuple[Any, float]],
+            weights: Sequence[float],
             rng: np.random.Generator,
-        ) -> object:
-            """Choose where to move. Always returns a location (may be current)."""
-            if not destinations:
-                return current_loc  # no alternatives → stay in place
-            loc, _dist = destinations[rng.integers(len(destinations))]
-            return loc
+        ) -> int:
+            """Choose destination by index. weights[0] = current location."""
+            if len(weights) == 1:
+                return 0
+            total = sum(weights)
+            if total == 0:
+                return 0
+            probs = [w / total for w in weights]
+            return int(rng.choice(len(weights), p=probs))
 
     return SIRAgent
 
 
 # ---------------------------------------------------------------------------
-# Rule (class, not instantiated)
+# Rule factory (closure captures parameters)
 # ---------------------------------------------------------------------------
 
 
-class SIRRule(Rule):
-    """SIR transition rule.
+def sir_rule(
+    initial_infected: int,
+    perception_radius: float,
+    move_radius: float,
+    distance_to_weight: Callable[[float], float],
+) -> type[Rule]:
+    """Factory: returns an SIRRule class with parameters baked in."""
 
-    Requires from Environment:
-    - items(), agents_with_distances(loc, max_dist), reachable(loc, max_dist),
-      move(from, to), place_random(agent, rng)
+    _initial = initial_infected
+    _perception = perception_radius
+    _move = move_radius
+    _d2w = distance_to_weight
 
-    Requires from Agent:
-    - state, next_state(others, rng), choose_move(destinations, rng)
-    """
+    class SIRRule(Rule):
 
-    INITIAL_INFECTED: int = 3
-    PERCEPTION_RADIUS: float = 1.5
-    MOVE_RADIUS: float = 1.5
+        initial_infected = _initial
+        perception_radius = _perception
+        move_radius = _move
 
-    @runtime_checkable
-    class EnvSpec(Protocol):
-        """Environment capabilities required by this rule."""
+        @runtime_checkable
+        class EnvSpec(Protocol):
+            def items(self) -> Iterator[tuple[Any, Any]]: ...
+            def agents_with_distances(
+                self, location: Any, max_distance: float,
+            ) -> Sequence[tuple[Any, float]]: ...
+            def reachable(
+                self, location: Any, max_distance: float,
+            ) -> Sequence[tuple[Any, float]]: ...
+            def move(self, from_loc: Any, to_loc: Any) -> None: ...
+            def place_random(self, agent: Any, rng: Any) -> None: ...
 
-        def items(self) -> Iterator[tuple[Any, Any]]: ...
-        def agents_with_distances(
-            self, location: Any, max_distance: float,
-        ) -> Sequence[tuple[Any, float]]: ...
-        def reachable(
-            self, location: Any, max_distance: float,
-        ) -> Sequence[tuple[Any, float]]: ...
-        def move(self, from_loc: Any, to_loc: Any) -> None: ...
-        def place_random(self, agent: Any, rng: Any) -> None: ...
+        @runtime_checkable
+        class AgentSpec(Protocol):
+            state: SIRState
+            def next_state(
+                self, others: Sequence[tuple[Any, float]],
+                rng: np.random.Generator,
+            ) -> SIRState: ...
+            def choose_move(
+                self, weights: Sequence[float],
+                rng: np.random.Generator,
+            ) -> int: ...
 
-    @runtime_checkable
-    class AgentSpec(Protocol):
-        """Agent capabilities required by this rule."""
+        @staticmethod
+        def init(env: Environment, agent_cls: type[Agent], rng) -> None:
+            n_cells = env.size ** 2
+            for _ in range(_initial):
+                env.place_random(agent_cls("I"), rng)
+            for _ in range(n_cells - _initial):
+                env.place_random(agent_cls("S"), rng)
 
-        state: SIRState
+        @staticmethod
+        def step(env: Environment, rng) -> None:
+            # Phase 1: state update (synchronous)
+            updates = [
+                (agent, agent.next_state(
+                    env.agents_with_distances(loc, _perception), rng,
+                ))
+                for loc, agent in env.items()
+            ]
+            for agent, new_state in updates:
+                agent.state = new_state
 
-        def next_state(
-            self,
-            others: Sequence[tuple[Any, float]],
-            rng: np.random.Generator,
-        ) -> SIRState: ...
+            # Phase 2: movement (sequential)
+            for loc, agent in list(env.items()):
+                reachable = env.reachable(loc, _move)
+                candidates = [(loc, 0.0)] + list(reachable)
+                weights = [_d2w(d) for _, d in candidates]
+                choice = agent.choose_move(weights, rng)
+                chosen_loc = candidates[choice][0]
+                if chosen_loc is not loc:
+                    env.move(loc, chosen_loc)
 
-        def choose_move(
-            self,
-            current_loc: Any,
-            destinations: Sequence[tuple[Any, float]],
-            rng: np.random.Generator,
-        ) -> object: ...
-
-    @staticmethod
-    def init(env: Environment, agent_cls: type[Agent], rng) -> None:
-        """Populate environment with initial SIR agents."""
-        n_cells = env.size ** 2
-        for _ in range(SIRRule.INITIAL_INFECTED):
-            env.place_random(agent_cls("I"), rng)
-        for _ in range(n_cells - SIRRule.INITIAL_INFECTED):
-            env.place_random(agent_cls("S"), rng)
-
-    @staticmethod
-    def step(env: Environment, rng) -> None:
-        """Synchronous state update + sequential movement."""
-        # Phase 1: compute all next states (synchronous)
-        updates = [
-            (agent, agent.next_state(
-                env.agents_with_distances(loc, SIRRule.PERCEPTION_RADIUS), rng,
-            ))
-            for loc, agent in env.items()
-        ]
-        for agent, new_state in updates:
-            agent.state = new_state
-
-        # Phase 2: movement (sequential — order matters for occupancy)
-        for loc, agent in list(env.items()):
-            destinations = env.reachable(loc, SIRRule.MOVE_RADIUS)
-            dest = agent.choose_move(loc, destinations, rng)
-            if dest is not loc:
-                env.move(loc, dest)
+    return SIRRule
 
 
 # ---------------------------------------------------------------------------
@@ -147,14 +151,11 @@ class SIRRule(Rule):
 
 
 class SIRCounts(NamedTuple):
-    """Counts of S, I, R agents at a single timestep."""
-
     s: int
     i: int
     r: int
 
 
 def count_by_state(env: Environment) -> SIRCounts:
-    """Count agents in each SIR state."""
     counts = Counter(a.state for a in env)
     return SIRCounts(s=counts["S"], i=counts["I"], r=counts["R"])
