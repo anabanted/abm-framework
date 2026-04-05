@@ -22,7 +22,7 @@ def test_basic_assembly_and_run():
     rule = SIRRule(
         perception_radius=1.5,
         move_radius=1.5,
-        distance_to_weight=lambda d: 1.0 / (d + 0.1),
+        infection_weight=lambda d: 1.0, move_weight=lambda d: 1.0 / (d + 0.1),
     )
     agents = (
         [SIRAgent("I", beta=0.3, gamma=0.1) for _ in range(3)]
@@ -46,7 +46,7 @@ def test_population_conservation():
     rng = np.random.default_rng(0)
 
     rule = SIRRule(perception_radius=1.5, move_radius=1.5,
-                   distance_to_weight=lambda d: 1.0)
+                   infection_weight=lambda d: 1.0, move_weight=lambda d: 1.0)
     agents = (
         [SIRAgent("I", beta=0.3, gamma=0.1) for _ in range(3)]
         + [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(97)]
@@ -72,7 +72,7 @@ def test_reject_incompatible_agent():
         name: str
 
     rule = SIRRule(perception_radius=1.5, move_radius=1.5,
-                   distance_to_weight=lambda d: 1.0)
+                   infection_weight=lambda d: 1.0, move_weight=lambda d: 1.0)
     agents = [BadAgent("x") for _ in range(25)]
     env = Grid(5, Cell, periodic=False)
 
@@ -91,7 +91,7 @@ def test_reject_incompatible_env():
         pass
 
     rule = SIRRule(perception_radius=1.5, move_radius=1.5,
-                   distance_to_weight=lambda d: 1.0)
+                   infection_weight=lambda d: 1.0, move_weight=lambda d: 1.0)
     agents = [SIRAgent("S", beta=0.3, gamma=0.1)]
 
     with pytest.raises(TypeError):
@@ -106,7 +106,7 @@ def test_step_and_observe():
     rng = np.random.default_rng(42)
 
     rule = SIRRule(perception_radius=1.5, move_radius=1.5,
-                   distance_to_weight=lambda d: 1.0)
+                   infection_weight=lambda d: 1.0, move_weight=lambda d: 1.0)
     agents = (
         [SIRAgent("I", beta=0.3, gamma=0.1) for _ in range(3)]
         + [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(97)]
@@ -130,7 +130,7 @@ def test_heterogeneous_agents():
     rng = np.random.default_rng(42)
 
     rule = SIRRule(perception_radius=1.5, move_radius=1.5,
-                   distance_to_weight=lambda d: 1.0)
+                   infection_weight=lambda d: 1.0, move_weight=lambda d: 1.0)
     agents = (
         [SIRAgent("I", beta=0.3, gamma=0.1) for _ in range(3)]
         + [SIRAgent("S", beta=0.1, gamma=0.05) for _ in range(50)]   # cautious
@@ -154,7 +154,7 @@ def test_agents_with_distances():
     rng = np.random.default_rng(42)
 
     rule = SIRRule(perception_radius=1.5, move_radius=1.5,
-                   distance_to_weight=lambda d: 1.0)
+                   infection_weight=lambda d: 1.0, move_weight=lambda d: 1.0)
     agents = [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(25)]
     env = Grid(5, Cell, periodic=True)
     model = Model(rule, env, agents, rng=rng)
@@ -173,7 +173,7 @@ def test_dense_grid_no_movement():
     rng = np.random.default_rng(42)
 
     rule = SIRRule(perception_radius=1.5, move_radius=1.5,
-                   distance_to_weight=lambda d: 1.0)
+                   infection_weight=lambda d: 1.0, move_weight=lambda d: 1.0)
     agents = [SIRAgent("S", beta=0.3, gamma=0.1) for _ in range(25)]
     env = Grid(5, Cell, periodic=True)
     model = Model(rule, env, agents, rng=rng)

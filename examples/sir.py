@@ -32,10 +32,10 @@ class SIRAgent(Agent):
         others: Sequence[tuple[SIRAgent, float]],
         rng: np.random.Generator,
     ) -> SIRState:
-        """Compute next state given other agents with distances."""
+        """Compute next state. Receives (agent, infection_weight) pairs."""
         if self.state == "S":
-            for agent, _distance in others:
-                if agent.state == "I" and rng.random() < self.beta:
+            for agent, weight in others:
+                if agent.state == "I" and rng.random() < self.beta * weight:
                     return "I"
             return "S"
         if self.state == "I":
@@ -63,7 +63,11 @@ class SIRAgent(Agent):
 
 
 class SIRRule(Rule):
-    """SIR transition rule."""
+    """SIR transition rule.
+
+    Both infection and movement use the same pattern:
+      env → distances, Rule → weights, Agent → decision
+    """
 
     @runtime_checkable
     class EnvSpec(Protocol):
@@ -93,23 +97,26 @@ class SIRRule(Rule):
         self,
         perception_radius: float,
         move_radius: float,
-        distance_to_weight: Callable[[float], float],
+        infection_weight: Callable[[float], float],
+        move_weight: Callable[[float], float],
     ) -> None:
         self.perception_radius = perception_radius
         self.move_radius = move_radius
-        self.distance_to_weight = distance_to_weight
+        self.infection_weight = infection_weight
+        self.move_weight = move_weight
 
     def init(self, env: Environment, agents: Sequence[Agent], rng) -> None:
-        """Place agents into the environment."""
         for agent in agents:
             env.place_random(agent, rng)
 
     def step(self, env: Environment, rng) -> None:
-        """Synchronous state update + sequential movement."""
-        # Phase 1: state update (synchronous)
+        # Phase 1: infection + recovery (synchronous)
+        # env → distances, Rule → infection weights, Agent → decision
         updates = [
             (agent, agent.next_state(
-                env.agents_with_distances(loc, self.perception_radius), rng,
+                [(a, self.infection_weight(d))
+                 for a, d in env.agents_with_distances(loc, self.perception_radius)],
+                rng,
             ))
             for loc, agent in env.items()
         ]
@@ -117,10 +124,11 @@ class SIRRule(Rule):
             agent.state = new_state
 
         # Phase 2: movement (sequential)
+        # env → distances, Rule → move weights, Agent → choice
         for loc, agent in list(env.items()):
             reachable = env.reachable(loc, self.move_radius)
             candidates = [(loc, 0.0)] + list(reachable)
-            weights = [self.distance_to_weight(d) for _, d in candidates]
+            weights = [self.move_weight(d) for _, d in candidates]
             choice = agent.choose_move(weights, rng)
             chosen_loc = candidates[choice][0]
             if chosen_loc is not loc:
