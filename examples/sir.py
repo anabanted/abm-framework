@@ -1,9 +1,9 @@
-"""SIR domain: Agent, Rule, observation. All plain classes and instances."""
+"""SIR domain: Agent, Rule, observation."""
 
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, NamedTuple, Protocol, runtime_checkable
 
@@ -15,13 +15,13 @@ type SIRState = Literal["S", "I", "R"]
 
 
 # ---------------------------------------------------------------------------
-# Agent (plain dataclass, parameters per instance)
+# Agent
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class SIRAgent(Agent):
-    """SIR agent with per-instance parameters."""
+    """SIR agent. Receives (agent, intensity) contacts, decides infection."""
 
     state: SIRState
     beta: float
@@ -29,81 +29,51 @@ class SIRAgent(Agent):
 
     def next_state(
         self,
-        others: Sequence[tuple[SIRAgent, float]],
+        contacts: Sequence[tuple[SIRAgent, float]],
         rng: np.random.Generator,
     ) -> SIRState:
-        """Compute next state. Receives (agent, infection_weight) pairs."""
+        """Compute next state from contacts (agent, intensity) pairs."""
         if self.state == "S":
-            for agent, weight in others:
-                if agent.state == "I" and rng.random() < self.beta * weight:
+            for agent, intensity in contacts:
+                if agent.state == "I" and rng.random() < self.beta * intensity:
                     return "I"
             return "S"
         if self.state == "I":
             return "R" if rng.random() < self.gamma else "I"
         return self.state
 
-    def choose_move(
-        self,
-        weights: Sequence[float],
-        rng: np.random.Generator,
-    ) -> int:
-        """Choose destination by index. weights[0] = current location."""
-        if len(weights) == 1:
-            return 0
-        total = sum(weights)
-        if total == 0:
-            return 0
-        probs = [w / total for w in weights]
-        return int(rng.choice(len(weights), p=probs))
+    def move(self, env: Environment, loc: Any, rng: np.random.Generator) -> None:
+        """Delegate movement to environment's move rule."""
+        env.try_move(loc, self, rng)
 
 
 # ---------------------------------------------------------------------------
-# Rule (plain instance with parameters)
+# Rule
 # ---------------------------------------------------------------------------
 
 
 class SIRRule(Rule):
-    """SIR transition rule.
+    """SIR transition rule. Thin orchestrator.
 
-    Both infection and movement use the same pattern:
-      env → distances, Rule → weights, Agent → decision
+    Phase 1: infection — env.contacts → agent.next_state (synchronous)
+    Phase 2: movement — agent.move → env.try_move (sequential)
     """
 
     @runtime_checkable
     class EnvSpec(Protocol):
-        def items(self) -> Iterator[tuple[Any, Any]]: ...
-        def agents_with_distances(
-            self, location: Any, max_distance: float,
-        ) -> Sequence[tuple[Any, float]]: ...
-        def reachable(
-            self, location: Any, max_distance: float,
-        ) -> Sequence[tuple[Any, float]]: ...
-        def move(self, from_loc: Any, to_loc: Any) -> None: ...
+        def items(self) -> Any: ...
+        def contacts(self, location: Any) -> Sequence[tuple[Any, float]]: ...
+        def try_move(self, location: Any, agent: Any, rng: Any) -> None: ...
         def place_random(self, agent: Any, rng: Any) -> None: ...
 
     @runtime_checkable
     class AgentSpec(Protocol):
         state: SIRState
         def next_state(
-            self, others: Sequence[tuple[Any, float]],
+            self, contacts: Sequence[tuple[Any, float]],
             rng: np.random.Generator,
         ) -> SIRState: ...
-        def choose_move(
-            self, weights: Sequence[float],
-            rng: np.random.Generator,
-        ) -> int: ...
-
-    def __init__(
-        self,
-        perception_radius: float,
-        move_radius: float,
-        infection_weight: Callable[[float], float],
-        move_weight: Callable[[float], float],
-    ) -> None:
-        self.perception_radius = perception_radius
-        self.move_radius = move_radius
-        self.infection_weight = infection_weight
-        self.move_weight = move_weight
+        def move(self, env: Any, loc: Any, rng: np.random.Generator) -> None: ...
 
     def init(self, env: Environment, agents: Sequence[Agent], rng) -> None:
         for agent in agents:
@@ -111,28 +81,16 @@ class SIRRule(Rule):
 
     def step(self, env: Environment, rng) -> None:
         # Phase 1: infection + recovery (synchronous)
-        # env → distances, Rule → infection weights, Agent → decision
         updates = [
-            (agent, agent.next_state(
-                [(a, self.infection_weight(d))
-                 for a, d in env.agents_with_distances(loc, self.perception_radius)],
-                rng,
-            ))
+            (agent, agent.next_state(env.contacts(loc), rng))
             for loc, agent in env.items()
         ]
         for agent, new_state in updates:
             agent.state = new_state
 
-        # Phase 2: movement (sequential)
-        # env → distances, Rule → move weights, Agent → choice
+        # Phase 2: movement (sequential) — Rule → Agent → Env
         for loc, agent in list(env.items()):
-            reachable = env.reachable(loc, self.move_radius)
-            candidates = [(loc, 0.0)] + list(reachable)
-            weights = [self.move_weight(d) for _, d in candidates]
-            choice = agent.choose_move(weights, rng)
-            chosen_loc = candidates[choice][0]
-            if chosen_loc is not loc:
-                env.move(loc, chosen_loc)
+            agent.move(env, loc, rng)
 
 
 # ---------------------------------------------------------------------------

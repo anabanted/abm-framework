@@ -20,10 +20,7 @@ class Cell[T]:
 
 @dataclass
 class OptionalCell[T]:
-    """A grid cell that may be empty (value is None).
-
-    Used in sparse grids where not all positions are occupied.
-    """
+    """A grid cell that may be empty (value is None)."""
 
     pos: tuple[int, int]
     value: T | None = None
@@ -45,18 +42,32 @@ def _chebyshev(
     return float(max(dr, dc))
 
 
-class Grid[C](Environment):
-    """2D grid environment with Chebyshev distance.
+# Type aliases for rule callables
+type ContactRule = Callable[..., Sequence[tuple[object, float]]]
+type MoveRule = Callable[..., None]
 
-    C is the cell type, injected via cell_factory.
+
+class Grid[C](Environment):
+    """2D grid environment with composable contact and move rules.
+
+    contact_rule: (env, loc) -> [(agent, intensity)]
+    move_rule: (env, loc, agent, rng) -> None
     """
 
     def __init__(
-        self, size: int, cell_factory: Callable[..., C], *, periodic: bool = False,
+        self,
+        size: int,
+        cell_factory: Callable[..., C],
+        *,
+        periodic: bool = False,
+        contact_rule: ContactRule,
+        move_rule: MoveRule,
     ) -> None:
         self.size = size
         self.periodic = periodic
         self._cell_factory = cell_factory
+        self._contact_rule = contact_rule
+        self._move_rule = move_rule
         self._cells: list[list[C | None]] = [
             [None] * size for _ in range(size)
         ]
@@ -83,33 +94,16 @@ class Grid[C](Environment):
     def items(self) -> Iterator[tuple[C, object]]:
         return ((c, c.value) for c in self._agents)
 
-    def agents_with_distances(
-        self, location: C, max_distance: float,
-    ) -> list[tuple[object, float]]:
-        """All agents within max_distance (excluding self)."""
-        return [
-            (c.value, d)
-            for c in self._agents
-            if c is not location
-            for d in [_chebyshev(location.pos, c.pos, self.size, self.periodic)]
-            if d <= max_distance
-        ]
+    def contacts(self, location: C) -> Sequence[tuple[object, float]]:
+        """Get contacts for an agent using the composed contact_rule."""
+        return self._contact_rule(self, location)
 
-    def reachable(
-        self, location: C, max_distance: float,
-    ) -> list[tuple[tuple[int, int], float]]:
-        """Empty cells within max_distance, with distances."""
-        return [
-            ((r, c), d)
-            for r in range(self.size)
-            for c in range(self.size)
-            if self._cells[r][c] is None
-            for d in [_chebyshev(location.pos, (r, c), self.size, self.periodic)]
-            if d <= max_distance
-        ]
+    def try_move(self, location: C, agent: object, rng: np.random.Generator) -> None:
+        """Attempt to move an agent using the composed move_rule."""
+        self._move_rule(self, location, agent, rng)
 
     def move(self, from_loc: C, to_pos: tuple[int, int]) -> None:
-        """Move agent from cell to empty position."""
+        """Execute a move (used by move_rules)."""
         agent = from_loc.value
         self._cells[from_loc.pos[0]][from_loc.pos[1]] = None
         self._agents.remove(from_loc)
