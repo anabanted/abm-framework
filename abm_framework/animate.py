@@ -34,14 +34,21 @@ def record_simulation[O](
     n_steps: int,
     observe: Callable[[Environment], O],
     snapshot: Callable[[Environment], NDArray],
+    *,
+    progress: bool = True,
 ) -> tuple[list[NDArray], list[O]]:
     """Run simulation and record grid snapshots + observations at each step."""
+    import sys
     snapshots = [snapshot(model.env)]
     observations = [observe(model.env)]
-    for _ in range(n_steps):
+    for i in range(n_steps):
         model.step()
         snapshots.append(snapshot(model.env))
         observations.append(observe(model.env))
+        if progress and (i + 1) % 10 == 0:
+            print(f"\r\u23f3 Step {i + 1}/{n_steps}", end="", flush=True)
+    if progress:
+        print(f"\r\u23f3 Simulation done ({n_steps} steps). Rendering...", flush=True)
     return snapshots, observations
 
 
