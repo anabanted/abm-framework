@@ -1,0 +1,20 @@
+[project]
+name = "abm-framework"
+version = "0.1.0"
+description = "Rule-centric Agent-Based Model framework"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["abm_framework"]
